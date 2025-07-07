@@ -244,6 +244,72 @@ class DocumentProcessor:
                 "success": False,
                 "error": str(e)
             }
+        
+
+    def answer_question(self, question, search_results=None):
+        """질문에 대한 답변 생성 (RAG)"""
+        try:
+            # 검색 결과가 없으면 검색 수행
+            if search_results is None:
+                search_result = self.search_documents(question)
+                if not search_result["success"]:
+                    raise Exception(f"검색 실패: {search_result['error']}")
+                search_results = search_result["results"]
+            
+            # 검색 결과를 컨텍스트로 구성
+            context = ""
+            if search_results:
+                context = "\n\n".join([
+                    f"[문서: {result['file_name']}]\n{result['content']}"
+                    for result in search_results[:3]  # 상위 3개만 사용
+                ])
+            
+            # 검색 결과가 없는 경우 처리
+            if not context.strip():
+                return {
+                    "success": True,
+                    "answer": "죄송합니다. 업로드된 문서에서 관련 정보를 찾을 수 없습니다. 다른 키워드로 검색해보시거나 관련 문서를 업로드해주세요.",
+                    "sources": [],
+                    "search_results": []
+                }
+            
+            # 답변 생성 프롬프트
+            prompt = f"""다음 문서들을 참고하여 질문에 답변해주세요.
+
+질문: {question}
+
+참고 문서:
+{context}
+
+답변 규칙:
+1. 문서에 있는 정보를 우선적으로 사용하세요
+2. 문서에 없는 내용은 일반적인 지식으로 보완하되, 이를 명시하세요
+3. 한국어로 명확하고 도움이 되는 답변을 작성하세요
+4. 문서 출처를 답변에 포함하세요"""
+
+            response = self.openai_client.chat.completions.create(
+                model=self.deployment_name,
+                messages=[
+                    {"role": "system", "content": "당신은 기술 문서 기반 질의응답 전문가입니다. 제공된 문서를 바탕으로 정확하고 도움이 되는 답변을 제공합니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=1000
+            )
+            
+            answer = response.choices[0].message.content
+            
+            return {
+                "success": True,
+                "answer": answer,
+                "sources": [result["file_name"] for result in search_results] if search_results else [],
+                "search_results": search_results
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }       
     
     def search_documents(self, query, top_k=3):
         """문서 검색 - 기존 스키마 필드 사용"""
