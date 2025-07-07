@@ -1,4 +1,3 @@
-# document_processor.py (간단한 Key 사용)
 import json
 import uuid
 from datetime import datetime
@@ -95,8 +94,6 @@ class DocumentProcessor:
         try:
             # 문서가 너무 길면 일부만 처리
             text = document_result["extracted_text"]
-            # if len(text) > 8000:
-            #     text = text[:8000] + "..."
             
             # 요약 프롬프트
             summary_prompt = f"""다음 문서를 분석하여 핵심 내용을 요약해주세요:
@@ -244,81 +241,19 @@ class DocumentProcessor:
                 "success": False,
                 "error": str(e)
             }
-        
-
-    def answer_question(self, question, search_results=None):
-        """질문에 대한 답변 생성 (RAG)"""
-        try:
-            # 검색 결과가 없으면 검색 수행
-            if search_results is None:
-                search_result = self.search_documents(question)
-                if not search_result["success"]:
-                    raise Exception(f"검색 실패: {search_result['error']}")
-                search_results = search_result["results"]
-            
-            # 검색 결과를 컨텍스트로 구성
-            context = ""
-            if search_results:
-                context = "\n\n".join([
-                    f"[문서: {result['file_name']}]\n{result['content']}"
-                    for result in search_results[:3]  # 상위 3개만 사용
-                ])
-            
-            # 검색 결과가 없는 경우 처리
-            if not context.strip():
-                return {
-                    "success": True,
-                    "answer": "죄송합니다. 업로드된 문서에서 관련 정보를 찾을 수 없습니다. 다른 키워드로 검색해보시거나 관련 문서를 업로드해주세요.",
-                    "sources": [],
-                    "search_results": []
-                }
-            
-            # 답변 생성 프롬프트
-            prompt = f"""다음 문서들을 참고하여 질문에 답변해주세요.
-
-질문: {question}
-
-참고 문서:
-{context}
-
-답변 규칙:
-1. 문서에 있는 정보를 우선적으로 사용하세요
-2. 문서에 없는 내용은 일반적인 지식으로 보완하되, 이를 명시하세요
-3. 한국어로 명확하고 도움이 되는 답변을 작성하세요
-4. 문서 출처를 답변에 포함하세요"""
-
-            response = self.openai_client.chat.completions.create(
-                model=self.deployment_name,
-                messages=[
-                    {"role": "system", "content": "당신은 기술 문서 기반 질의응답 전문가입니다. 제공된 문서를 바탕으로 정확하고 도움이 되는 답변을 제공합니다."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_completion_tokens=1000
-            )
-            
-            answer = response.choices[0].message.content
-            
-            return {
-                "success": True,
-                "answer": answer,
-                "sources": [result["file_name"] for result in search_results] if search_results else [],
-                "search_results": search_results
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }       
     
-    def search_documents(self, query, top_k=3):
-        """문서 검색 - 기존 스키마 필드 사용"""
+    def search_documents(self, query, top_k=5):
+        """문서 검색 - 개선된 검색 방식"""
         try:
+            # 1. 기본 검색 (전체 일치 우선)
             search_results = self.search_client.search(
                 search_text=query,
                 top=top_k,
                 include_total_count=True,
-                select=["content", "merged_content", "metadata_storage_name", "metadata_storage_path"]
+                select=["content", "merged_content", "metadata_storage_name", "metadata_storage_path"],
+                # 구문 검색 모드 활성화 (정확한 구문 매칭)
+                query_type="simple",
+                search_mode="all"  # 모든 검색어가 포함된 결과 우선
             )
             
             results = []
@@ -338,10 +273,125 @@ class DocumentProcessor:
                     "storage_path": result.get("metadata_storage_path", "")
                 })
             
+            # 2. 결과가 부족하면 부분 검색도 시도
+            if len(results) < 2:
+                # 검색 모드를 'any'로 변경 (단어 중 하나라도 매칭)
+                fallback_results = self.search_client.search(
+                    search_text=query,
+                    top=top_k,
+                    include_total_count=True,
+                    select=["content", "merged_content", "metadata_storage_name", "metadata_storage_path"],
+                    query_type="simple",
+                    search_mode="any"  # 검색어 중 하나라도 포함된 결과
+                )
+                
+                # 기존 결과와 중복 제거하면서 추가
+                existing_paths = {r["storage_path"] for r in results}
+                for result in fallback_results:
+                    if result.get("metadata_storage_path") not in existing_paths:
+                        content = result.get("content") or result.get("merged_content", "")
+                        file_name = result.get("metadata_storage_name", "Unknown")
+                        
+                        if "_chunk_" in file_name:
+                            file_name = file_name.split("_chunk_")[0]
+                        
+                        results.append({
+                            "content": content,
+                            "file_name": file_name,
+                            "score": result["@search.score"],
+                            "storage_path": result.get("metadata_storage_path", "")
+                        })
+                        
+                        if len(results) >= top_k:
+                            break
+            
             return {
                 "success": True,
                 "results": results,
                 "total_count": len(results)
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def answer_question(self, question, search_results=None):
+        """질문에 대한 답변 생성 (RAG + 일반 지식)"""
+        try:
+            # 검색 결과가 없으면 검색 수행
+            if search_results is None:
+                search_result = self.search_documents(question)
+                if not search_result["success"]:
+                    raise Exception(f"검색 실패: {search_result['error']}")
+                search_results = search_result["results"]
+            
+            # 검색 결과를 컨텍스트로 구성
+            context = ""
+            sources = []
+            if search_results:
+                context_parts = []
+                for result in search_results[:3]:  # 상위 3개만 사용
+                    context_parts.append(f"[문서: {result['file_name']}]\n{result['content']}")
+                    sources.append(result['file_name'])
+                context = "\n\n".join(context_parts)
+            
+            # 답변 생성 프롬프트 - 문서 기반 + 일반 지식
+            if context.strip():
+                # 문서 기반 답변
+                prompt = f"""다음 문서들을 참고하여 질문에 답변해주세요.
+
+질문: {question}
+
+참고 문서:
+{context}
+
+답변 규칙:
+1. 먼저 문서에 있는 정보를 기반으로 답변하세요
+2. 문서 정보가 부족하면 일반적인 지식으로 보완하되, 이를 명시하세요
+3. 한국어로 명확하고 도움이 되는 답변을 작성하세요
+4. 답변 마지막에 참고한 문서를 명시하세요
+
+답변 형식:
+[문서 기반 답변]
+[추가 일반 지식 (해당하는 경우)]
+
+**참고 문서:** [문서명들]"""
+                
+                answer_type = "document_based"
+            else:
+                # 일반 지식 기반 답변
+                prompt = f"""다음 질문에 대해 일반적인 지식을 바탕으로 답변해주세요.
+
+질문: {question}
+
+답변 규칙:
+1. 프로젝트 투입 및 기술 학습 관점에서 도움이 되는 답변을 제공하세요
+2. 한국어로 명확하고 실용적인 답변을 작성하세요
+3. 가능하면 구체적인 예시나 방법을 포함하세요
+4. 답변 마지막에 "※ 업로드된 문서에서 관련 정보를 찾을 수 없어 일반적인 지식으로 답변했습니다."라고 명시하세요"""
+                
+                answer_type = "general_knowledge"
+
+            response = self.openai_client.chat.completions.create(
+                model=self.deployment_name,
+                messages=[
+                    {"role": "system", "content": "당신은 프로젝트 투입 지원 전문가입니다. 기술 문서와 일반 지식을 활용하여 신규 투입자에게 도움이 되는 답변을 제공합니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=1500
+            )
+            
+            answer = response.choices[0].message.content
+            
+            return {
+                "success": True,
+                "answer": answer,
+                "answer_type": answer_type,
+                "sources": sources,
+                "search_results": search_results,
+                "search_result_count": len(search_results) if search_results else 0
             }
             
         except Exception as e:
