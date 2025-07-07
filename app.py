@@ -1,4 +1,13 @@
 import streamlit as st
+from azure_config import azure_config
+from document_uploader import document_uploader, get_blob_files
+
+# DocumentUploader import
+try:
+    from document_uploader import document_uploader, get_blob_files
+    UPLOADER_AVAILABLE = True
+except ImportError:
+    UPLOADER_AVAILABLE = False
 
 # 페이지 설정
 st.set_page_config(
@@ -7,6 +16,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 세션 상태 초기화
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = []
 
 # 헤더
 st.title("🤖 Onboarding Assistant")
@@ -30,8 +43,37 @@ with col1:
     
     if uploaded_files:
         st.success(f"{len(uploaded_files)}개 파일이 업로드되었습니다")
-        for file in uploaded_files:
-            st.write(f"📄 {file.name}")
+
+        # 업로드된 각 파일에 대한 처리 버튼
+        for i, file in enumerate(uploaded_files):
+            with st.expander(f"📄 {file.name}"):
+                st.write(f"**파일 크기:** {file.size:,} bytes")
+                st.write(f"**파일 타입:** {file.type}")
+                
+                # Blob Storage 업로드 버튼
+                if UPLOADER_AVAILABLE:
+                        if st.button(f"파일 업로드", key=f"upload_{i}"):
+                            with st.spinner("파일 처리 중..."):
+                                result = document_uploader.process_single_file(file)
+                                
+                                if result["success"]:
+                            
+                                    # 세션 상태에 결과 저장
+                                    st.session_state.processed_files.append(result)
+                                    
+                                    # 업로드 정보 표시
+                                    st.write("**업로드 완료 정보:**")
+                                    st.write(f"• 문서 ID: `{result['document_id']}`")
+                                    st.write(f"• 텍스트 길이: {len(result['extracted_text'])}자")
+                                    
+                                    # Blob URL 링크
+                                    st.markdown(f"🔗 [파일 보기]({result['blob_url']})") # TODO : 링크 접근 가능하도록
+                                    
+                                else:
+                                    st.error(f"업로드 실패: {result['error']}")
+                else:
+                    st.warning("DocumentUploader를 사용하려면 document_uploader.py가 필요합니다.")
+
 
 with col2:
     st.header("📊 문서 요약 & 기술 정보")
