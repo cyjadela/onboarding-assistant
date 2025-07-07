@@ -1,0 +1,8 @@
+streamlit
+azure-search-documents
+azure-storage-blob
+openai
+azure-identity
+python-dotenv
+PyPDF2
+python-docx
