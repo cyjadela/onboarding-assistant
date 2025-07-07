@@ -92,7 +92,7 @@ class DocumentUploader:
             raise Exception(f"Blob Storage 업로드 실패: {str(e)}")
     
     def process_single_file(self, uploaded_file):
-        """단일 파일 처리: 텍스트 추출 + Blob Storage 업로드"""
+        """단일 파일 처리: 텍스트 추출 + Blob Storage 업로드 + AI Search 인덱싱 + 요약"""
         try:
             # 1. 텍스트 추출
             st.info("텍스트 추출 중...")
@@ -109,8 +109,8 @@ class DocumentUploader:
             
             st.success("업로드 완료!")
             
-            # 3. 결과 반환
-            return {
+            # 3. 기본 결과 생성
+            result = {
                 "success": True,
                 "document_id": upload_result["document_id"],
                 "file_name": uploaded_file.name,
@@ -121,8 +121,46 @@ class DocumentUploader:
                 "file_size": uploaded_file.size
             }
             
+            # 4. 문서 처리 (인덱싱 + 요약)
+            st.info("문서 분석 및 요약 중...")
+            try:
+                # document_processor import 확인
+                try:
+                    from document_processor import document_processor
+                    st.info("✅ document_processor 모듈 로드 성공")
+                except ImportError as e:
+                    st.error(f"❌ document_processor 모듈 로드 실패: {str(e)}")
+                    raise e
+                
+                # 문서 전체 처리
+                st.info("문서 처리 시작...")
+                processing_results = document_processor.process_document_complete(result)
+                st.info("문서 처리 완료")
+                
+                # 결과에 처리 정보 추가
+                result["processing_results"] = processing_results["processing_results"]
+                
+                # 디버깅: 결과 구조 확인
+                st.write("**처리 결과 구조:**")
+                st.json({
+                    "summary_success": result["processing_results"].get("summary", {}).get("success", False),
+                    "tech_info_success": result["processing_results"].get("technical_info", {}).get("success", False),
+                    "indexing_success": result["processing_results"].get("indexing", {}).get("success", False)
+                })
+                
+                st.success("문서 분석 완료!")
+                
+            except Exception as e:
+                st.error(f"❌ 문서 분석 중 오류 발생: {str(e)}")
+                st.write(f"오류 타입: {type(e).__name__}")
+                st.write(f"오류 메시지: {str(e)}")
+                result["processing_error"] = str(e)
+            
+            return result
+            
         except Exception as e:
             st.error(f"❌ 파일 처리 실패: {str(e)}")
+            st.write(f"오류 타입: {type(e).__name__}")
             return {
                 "success": False,
                 "error": str(e)

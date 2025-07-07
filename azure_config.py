@@ -14,13 +14,13 @@ class AzureConfig:
         # Azure OpenAI 설정
         self.openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        self.openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-        self.openai_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+        self.openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+        self.openai_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
         
         # Azure AI Search 설정
         self.search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
         self.search_api_key = os.getenv("AZURE_SEARCH_API_KEY")
-        self.search_index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "documents-index")
+        self.search_index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "onboarding-index")
         
         # Azure Storage 설정
         self.storage_connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")

@@ -6,3 +6,5 @@ azure-identity
 python-dotenv
 PyPDF2
 python-docx
+azure-search-documents
+azure-ai-textanalytics
