@@ -1,4 +1,20 @@
 import streamlit as st
+from azure_config import azure_config
+from document_uploader import document_uploader, get_blob_files
+
+# DocumentUploader import
+try:
+    from document_uploader import document_uploader, get_blob_files
+    UPLOADER_AVAILABLE = True
+except ImportError:
+    UPLOADER_AVAILABLE = False
+
+# DocumentProcessor import
+try:
+    from document_processor import document_processor
+    PROCESSOR_AVAILABLE = True
+except ImportError:
+    PROCESSOR_AVAILABLE = False
 
 # 페이지 설정
 st.set_page_config(
@@ -7,6 +23,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 세션 상태 초기화
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = []
+if "integrated_tech_guide" not in st.session_state:
+    st.session_state.integrated_tech_guide = None
 
 # 헤더
 st.title("🤖 Onboarding Assistant")
@@ -30,20 +52,117 @@ with col1:
     
     if uploaded_files:
         st.success(f"{len(uploaded_files)}개 파일이 업로드되었습니다")
-        for file in uploaded_files:
-            st.write(f"📄 {file.name}")
+
+        # 업로드된 각 파일에 대한 처리 버튼
+        for i, file in enumerate(uploaded_files):
+            with st.expander(f"📄 {file.name}"):
+                st.write(f"**파일 크기:** {file.size:,} bytes")
+                st.write(f"**파일 타입:** {file.type}")
+                
+                # Blob Storage 업로드 버튼
+                if UPLOADER_AVAILABLE:
+                        if st.button(f"파일 업로드", key=f"upload_{i}"):
+                            with st.spinner("파일 처리 중..."):
+                                result = document_uploader.process_single_file(file)
+                                
+                                if result["success"]:
+                            
+                                    # 세션 상태에 결과 저장
+                                    st.session_state.processed_files.append(result)
+                                    
+                                    # 업로드 정보 표시
+                                    st.write("**업로드 완료 정보:**")
+                                    st.write(f"• 문서 ID: `{result['document_id']}`")
+                                    st.write(f"• 텍스트 길이: {len(result['extracted_text'])}자")
+                                    
+                                    # Blob URL 링크
+                                    st.markdown(f"🔗 [파일 보기]({result['blob_url']})") # TODO : 링크 접근 가능하도록
+                                    
+                                    # 통합 기술 가이드 초기화 (새 파일 추가시)
+                                    st.session_state.integrated_tech_guide = None
+                                    
+                                else:
+                                    st.error(f"업로드 실패: {result['error']}")
+                else:
+                    st.warning("DocumentUploader를 사용하려면 document_uploader.py가 필요합니다.")
+
 
 with col2:
-    st.header("📊 문서 요약 & 기술 정보")
-    st.info("문서 요약 및 필요한 기술 정보를 자동으로 추출합니다")
+    st.header("📊 문서 요약 & 통합 기술 가이드")
+    st.info("문서 요약 및 통합 기술 학습 가이드를 제공합니다")
     
-    # 플레이스홀더 컨텐츠
-    with st.container():
-        st.subheader("📋 문서 통합 요약")
-        st.write("업로드된 문서들을 통합하여 요약합니다.")
+    # 처리된 파일들의 요약만 표시
+    if st.session_state.processed_files:
+
+        # 개별 문서 요약들
+        st.subheader("📄 개별 문서 요약")
+        for file_result in st.session_state.processed_files:
+            if file_result.get("success") and "processing_results" in file_result:
+                with st.expander(f"📄 {file_result['file_name']} 요약"):
+                    
+                    # 문서 요약 표시
+                    if "summary" in file_result["processing_results"]:
+                        summary_result = file_result["processing_results"]["summary"]
+                        if summary_result.get("success"):
+                            st.markdown(summary_result["summary"])
+                        else:
+                            st.error(f"요약 생성 실패: {summary_result.get('error', '알 수 없는 오류')}")
+                    
+                    # 인덱싱 정보 표시
+                    if "indexing" in file_result["processing_results"]:
+                        index_result = file_result["processing_results"]["indexing"]
+                        if index_result.get("success"):
+                            st.success(f"✅ AI Search 인덱싱 완료 ({index_result['indexed_chunks']}개 청크)")
+                        else:
+                            st.error(f"인덱싱 실패: {index_result.get('error', '알 수 없는 오류')}")
+            
+            elif file_result.get("processing_error"):
+                st.warning(f"⚠️ {file_result['file_name']}: 분석 중 오류 발생")
+                st.error(file_result["processing_error"])
+
+        # 전체 통합 기술 가이드 버튼
+        st.subheader("🚀 통합 기술 학습 가이드")
         
-        st.subheader("🛠️ 기술 정보")
-        st.write("습득이 필요한 기술 정보가 표시됩니다.")
+        col_btn, col_status = st.columns([1, 2])
+        with col_btn:
+            generate_guide_btn = st.button("📚 통합 기술 가이드 생성", type="primary")
+
+        
+        # 통합 기술 가이드 생성
+        if generate_guide_btn and PROCESSOR_AVAILABLE:
+            with st.spinner("🤖 모든 문서를 분석하여 통합 기술 가이드를 생성하고 있습니다..."):
+                try:
+                    guide_result = document_processor.generate_integrated_tech_guide(st.session_state.processed_files)
+                    
+                    if guide_result["success"]:
+                        st.session_state.integrated_tech_guide = guide_result
+                        st.success("✅ 통합 기술 가이드 생성 완료!")
+                    else:
+                        st.error(f"❌ 가이드 생성 실패: {guide_result['error']}")
+                        
+                except Exception as e:
+                    st.error(f"❌ 예외 발생: {str(e)}")
+        
+        # 통합 기술 가이드 표시
+        if st.session_state.integrated_tech_guide:
+            guide_data = st.session_state.integrated_tech_guide
+            
+            with st.container():
+                st.markdown("---")
+                st.markdown("### 🎯 프로젝트 기술 학습 가이드")
+                st.markdown(guide_data["tech_guide"])
+                
+                # 메타 정보
+                with st.expander("📊 분석 정보"):
+                    st.write(f"• 분석된 문서 수: {guide_data['processed_files_count']}개")
+                    st.write(f"• 발견된 기술 키워드: {guide_data['total_keywords']}")
+        
+        st.divider()
+
+    else:
+        st.write("📋 **문서 업로드 안내**")
+        st.write("먼저 왼쪽에서 문서를 업로드해주세요.")
+        st.write("업로드 완료 후 '통합 기술 가이드 생성' 버튼을 눌러주세요.")
 
 with col3:
     st.header("💬 질의응답")
