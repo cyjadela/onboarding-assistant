@@ -1,5 +1,5 @@
 import os
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from openai import AzureOpenAI
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -7,7 +7,7 @@ from azure.storage.blob import BlobServiceClient
 from azure.core.credentials import AzureKeyCredential
 
 # 환경 변수 로드
-load_dotenv()
+# load_dotenv()
 
 class AzureConfig:
     def __init__(self):
