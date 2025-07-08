@@ -9,9 +9,8 @@ from azure_config import azure_config
 class DocumentUploader:
     def __init__(self):
         self.blob_service_client = azure_config.get_blob_service_client()
-    
+                
     def extract_text_from_file(self, uploaded_file):
-        """업로드된 파일에서 텍스트 추출"""
         try:
             file_extension = uploaded_file.name.split('.')[-1].lower()
             
@@ -19,15 +18,113 @@ class DocumentUploader:
                 return self._extract_text_from_pdf(uploaded_file)
             elif file_extension in ['docx']:
                 return self._extract_text_from_docx(uploaded_file)
+            elif file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+                # 이미지 파일 OCR 처리
+                return self._extract_text_from_image_ocr(uploaded_file)
             elif file_extension in ['txt', 'md']:
                 return self._extract_text_from_text(uploaded_file)
             else:
-                raise ValueError(f"지원하지 않는 파일 형식: {file_extension}")
+                raise ValueError(f"지원하지 않는 파일 형식: {file_extension}. 지원 형식: PDF, Word, 이미지(PNG/JPG/GIF), 텍스트")
                 
         except Exception as e:
             st.error(f"텍스트 추출 실패: {str(e)}")
             return None
-    
+        
+    def _extract_text_from_image_ocr(self, uploaded_file):
+        """이미지 파일에서 Computer Vision OCR로 텍스트 추출"""
+        try:
+            from io import BytesIO
+            from PIL import Image
+            
+            # Azure AI Services 클라이언트 확인
+            try:
+                from azure_config import azure_config
+                print("🔍 azure_config import 성공")
+                
+                vision_client = azure_config.get_vision_client()
+                print(f"🔍 vision_client 결과: {vision_client}")
+                
+                if not vision_client:
+                    raise Exception("Computer Vision Client가 None입니다.")
+                    
+                st.info("🔍 이미지에서 Computer Vision OCR로 텍스트를 추출합니다...")
+                
+            except Exception as e:
+                print(f"❌ OCR 클라이언트 생성 오류: {str(e)}")
+                raise Exception(f"OCR 설정 오류: {str(e)}")
+            
+            # 이미지 파일 읽기
+            uploaded_file.seek(0)
+            image_data = uploaded_file.read()
+            
+            # 이미지 유효성 검사
+            try:
+                img = Image.open(BytesIO(image_data))
+                st.info(f"📷 이미지 크기: {img.size[0]}×{img.size[1]} pixels")
+            except Exception as e:
+                raise Exception(f"유효하지 않은 이미지 파일: {str(e)}")
+            
+            # Computer Vision API 사용 (AI Services 호환)
+            try:
+                print("🔍 Computer Vision OCR 분석 시작...")
+                
+                # OCR 분석 시작
+                ocr_result = vision_client.read_in_stream(
+                    BytesIO(image_data),
+                    raw=True
+                )
+                
+                # 결과 폴링
+                operation_id = ocr_result.headers["Operation-Location"].split("/")[-1]
+                print(f"🔍 OCR 작업 ID: {operation_id}")
+                
+                import time
+                max_attempts = 30  # 최대 30초 대기
+                attempt = 0
+                
+                while attempt < max_attempts:
+                    result = vision_client.get_read_result(operation_id)
+                    print(f"🔍 OCR 상태: {result.status}")
+                    
+                    if result.status.lower() not in ['notstarted', 'running']:
+                        break
+                    time.sleep(0.5)
+                    attempt += 1
+                
+                if attempt >= max_attempts:
+                    raise Exception("OCR 처리 시간이 초과되었습니다.")
+                
+                print("🔍 OCR 분석 완료")
+                
+                # 텍스트 추출
+                extracted_text = ""
+                if result.analyze_result and result.analyze_result.read_results:
+                    st.success(f"✅ {len(result.analyze_result.read_results)}개 페이지에서 텍스트를 발견했습니다.")
+                    
+                    for page_num, page in enumerate(result.analyze_result.read_results, 1):
+                        extracted_text += f"\n=== 페이지 {page_num} ===\n"
+                        for line in page.lines:
+                            extracted_text += f"{line.text}\n"
+                else:
+                    extracted_text = "[OCR] 이미지에서 텍스트를 찾을 수 없습니다."
+                    st.warning("⚠️ 이미지에서 텍스트를 찾을 수 없습니다.")
+            
+            except Exception as e:
+                print(f"❌ Computer Vision OCR 분석 실패: {str(e)}")
+                raise Exception(f"Computer Vision OCR 분석 실패: {str(e)}")
+            
+            uploaded_file.seek(0)  # 파일 포인터 리셋
+            
+            if not extracted_text.strip():
+                return "[OCR] 이미지에서 텍스트를 추출할 수 없습니다."
+            
+            return extracted_text.strip()
+            
+        except Exception as e:
+            print(f"❌ 전체 OCR 처리 오류: {str(e)}")
+            raise Exception(f"이미지 OCR 처리 오류: {str(e)}")
+
+        
     def _extract_text_from_pdf(self, uploaded_file):
         """PDF 파일에서 텍스트 추출"""
         text = ""

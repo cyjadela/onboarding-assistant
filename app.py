@@ -45,9 +45,9 @@ with col1:
     # 파일 업로드 위젯 (기본)
     uploaded_files = st.file_uploader(
         "문서를 선택하세요",
-        type=['pdf', 'docx', 'txt', 'md'],
+        type=['pdf', 'docx', 'txt', 'md', 'jpg', 'jpeg', 'png'],
         accept_multiple_files=True,
-        help="PDF, Word, 텍스트, 마크다운 파일을 지원합니다"
+        help="PDF, PPTX, Word, 이미지, 텍스트, 마크다운 파일을 지원합니다"
     )
     
     if uploaded_files:

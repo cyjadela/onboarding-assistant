@@ -5,5 +5,7 @@ azure-search-documents
 azure-core
 PyPDF2
 python-docx
-python-pptx
 requests
+azure-ai-vision-imageanalysis
+Pillow
+azure-cognitiveservices-vision-computervision
