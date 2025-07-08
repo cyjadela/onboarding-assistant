@@ -173,15 +173,6 @@ with col3:
     elif not st.session_state.processed_files:
         st.info("📋 먼저 문서를 업로드하고 처리해주세요.")
     else:
-        # 인덱싱된 파일 수 확인
-        indexed_files = sum(1 for f in st.session_state.processed_files 
-                          if f.get("processing_results", {}).get("indexing", {}).get("success", False))
-        
-        if indexed_files == 0:
-            st.warning("⚠️ 인덱싱된 문서가 없습니다. 문서 처리를 완료해주세요.")
-        else:
-            st.success(f"✅ {indexed_files}개 문서가 검색 가능합니다.")
-            
             # 질문 입력
             user_question = st.text_input(
                 "질문을 입력하세요:",

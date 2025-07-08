@@ -31,7 +31,7 @@ class DocumentProcessor:
         return chunks
     
     def index_document(self, document_result):
-        """문서를 AI Search에 인덱싱 - 기존 스키마 활용 (간단한 Key)"""
+        """문서를 AI Search에 인덱싱 - 실제 스키마에 맞게 수정"""
         try:
             # 문서 텍스트를 청크로 분할
             chunks = self.chunk_text(document_result["extracted_text"])
@@ -40,36 +40,32 @@ class DocumentProcessor:
             documents = []
             for i, chunk in enumerate(chunks):
                 # 간단한 Key 생성 (문자, 숫자, 언더스코어, 대시만 사용)
-                # UUID에서 하이픈 제거하고 청크 인덱스 추가
                 clean_doc_id = document_result['document_id'].replace('-', '')
                 storage_path = f"doc_{clean_doc_id}_chunk_{i}"
                 
                 document = {
-                    # 기존 스키마의 필수 필드들
-                    "metadata_storage_path": storage_path,  # key 필드 (간단한 형식)
-                    "metadata_storage_name": f"{document_result['file_name']}_chunk_{i}",
-                    "metadata_storage_size": len(chunk.encode('utf-8')),
-                    "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
-                    "metadata_storage_content_type": "text/plain",
-                    "metadata_storage_file_extension": document_result["file_type"],
+                    # 필수 key 필드
+                    "metadata_storage_path": storage_path,
                     
-                    # 컨텐츠 필드들
+                    # 실제 스키마에 있는 필드들만 사용
                     "content": chunk,
                     "merged_content": chunk,
                     "text": [chunk],  # Collection 타입
                     "layoutText": [chunk],  # Collection 타입
                     
-                    # 언어 관련
-                    "language": "ko",
-                    "metadata_language": "ko",
+                    # 메타데이터 필드들 (스키마에 있는 것들만)
+                    "metadata_storage_size": len(chunk.encode('utf-8')),
+                    "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
+                    "metadata_storage_content_type": "text/plain",
+                    "metadata_storage_file_extension": document_result["file_type"],
                     
-                    # 날짜 필드
-                    "metadata_creation_date": datetime.now().isoformat() + "Z",
-                    
-                    # 빈 컬렉션들 (오류 방지)
+                    # 빈 컬렉션들 (스키마에 있는 것들)
+                    "people": [],
                     "organizations": [],
                     "keyphrases": [],
-                    "pii_entities": []
+                    "pii_entities": [],
+                    "imageTags": [],
+                    "imageCaption": []
                 }
                 
                 documents.append(document)
@@ -243,63 +239,80 @@ class DocumentProcessor:
             }
     
     def search_documents(self, query, top_k=5):
-        """문서 검색 - 개선된 검색 방식"""
+        """문서 검색 - 인덱스 스키마에 맞게 수정된 버전"""
         try:
-            # 1. 기본 검색 (전체 일치 우선)
+            # retrievable=true인 필드들만 select에 사용
             search_results = self.search_client.search(
                 search_text=query,
                 top=top_k,
                 include_total_count=True,
-                select=["content", "merged_content", "metadata_storage_name", "metadata_storage_path"],
-                # 구문 검색 모드 활성화 (정확한 구문 매칭)
+                select=[
+                    "content", 
+                    "merged_content", 
+                    "metadata_storage_path"  # 이것만 retrievable=true
+                ],
                 query_type="simple",
-                search_mode="all"  # 모든 검색어가 포함된 결과 우선
+                search_mode="all"
             )
             
             results = []
             for result in search_results:
                 # 안전하게 필드 접근
                 content = result.get("content") or result.get("merged_content", "")
-                file_name = result.get("metadata_storage_name", "Unknown")
                 
-                # 원본 파일명 추출 (chunk 정보 제거)
-                if "_chunk_" in file_name:
-                    file_name = file_name.split("_chunk_")[0]
+                # 파일명은 metadata_storage_path에서 추출
+                storage_path = result.get("metadata_storage_path", "")
+                file_name = "업로드된 문서"  # 기본값
+                
+                if storage_path and "doc_" in storage_path and "_chunk_" in storage_path:
+                    try:
+                        # doc_UUID_chunk_N 형식에서 파일명 추출
+                        parts = storage_path.split("_")
+                        if len(parts) >= 3:
+                            uuid_part = parts[1][:8]  # UUID 앞 8자리
+                            file_name = f"문서_{uuid_part}"
+                    except:
+                        file_name = "업로드된 문서"
                 
                 results.append({
                     "content": content,
                     "file_name": file_name,
                     "score": result["@search.score"],
-                    "storage_path": result.get("metadata_storage_path", "")
+                    "storage_path": storage_path
                 })
             
-            # 2. 결과가 부족하면 부분 검색도 시도
+            # 결과가 부족하면 부분 검색도 시도
             if len(results) < 2:
-                # 검색 모드를 'any'로 변경 (단어 중 하나라도 매칭)
                 fallback_results = self.search_client.search(
                     search_text=query,
                     top=top_k,
                     include_total_count=True,
-                    select=["content", "merged_content", "metadata_storage_name", "metadata_storage_path"],
+                    select=["content", "merged_content", "metadata_storage_path"],
                     query_type="simple",
-                    search_mode="any"  # 검색어 중 하나라도 포함된 결과
+                    search_mode="any"
                 )
                 
-                # 기존 결과와 중복 제거하면서 추가
                 existing_paths = {r["storage_path"] for r in results}
                 for result in fallback_results:
-                    if result.get("metadata_storage_path") not in existing_paths:
+                    current_path = result.get("metadata_storage_path", "")
+                    if current_path not in existing_paths:
                         content = result.get("content") or result.get("merged_content", "")
-                        file_name = result.get("metadata_storage_name", "Unknown")
                         
-                        if "_chunk_" in file_name:
-                            file_name = file_name.split("_chunk_")[0]
+                        file_name = "업로드된 문서"
+                        if current_path and "doc_" in current_path and "_chunk_" in current_path:
+                            try:
+                                parts = current_path.split("_")
+                                if len(parts) >= 3:
+                                    uuid_part = parts[1][:8]
+                                    file_name = f"문서_{uuid_part}"
+                            except:
+                                pass
                         
                         results.append({
                             "content": content,
                             "file_name": file_name,
                             "score": result["@search.score"],
-                            "storage_path": result.get("metadata_storage_path", "")
+                            "storage_path": current_path
                         })
                         
                         if len(results) >= top_k:

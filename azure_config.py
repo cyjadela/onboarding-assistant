@@ -20,7 +20,7 @@ class AzureConfig:
         # Azure AI Search 설정
         self.search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
         self.search_api_key = os.getenv("AZURE_SEARCH_API_KEY")
-        self.search_index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "onboarding-index")
+        self.search_index_name = os.getenv("AZURE_SEARCH_INDEX_NAME")
         
         # Azure Storage 설정
         self.storage_connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
