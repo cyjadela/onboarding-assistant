@@ -1,5 +1,5 @@
 import os
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from openai import AzureOpenAI
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -7,7 +7,7 @@ from azure.storage.blob import BlobServiceClient
 from azure.core.credentials import AzureKeyCredential
 
 # 환경 변수 로드
-load_dotenv()
+# load_dotenv()
 
 class AzureConfig:
     def __init__(self):
@@ -20,7 +20,7 @@ class AzureConfig:
         # Azure AI Search 설정
         self.search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
         self.search_api_key = os.getenv("AZURE_SEARCH_API_KEY")
-        self.search_index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "onboarding-index")
+        self.search_index_name = os.getenv("AZURE_SEARCH_INDEX_NAME")
         
         # Azure Storage 설정
         self.storage_connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")

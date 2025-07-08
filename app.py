@@ -168,15 +168,55 @@ with col3:
     st.header("💬 질의응답")
     st.info("자연어로 질문하시면 AI가 답변해드립니다")
     
-    # 기본 채팅 인터페이스
-    user_question = st.text_input("질문을 입력하세요:", placeholder="예: 서버 정보들은 어떤 문서에 있나요?")
-    
-    if st.button("질문하기"):
-        if user_question:
-            st.write("**AI 응답:**")
-            st.write("문서를 업로드하고 분석이 완료되면 질문에 답변해드립니다.")
-        else:
-            st.warning("질문을 입력해주세요!")
+    if not PROCESSOR_AVAILABLE:
+        st.error("❌ DocumentProcessor 모듈을 사용할 수 없습니다.")
+    elif not st.session_state.processed_files:
+        st.info("📋 먼저 문서를 업로드하고 처리해주세요.")
+    else:
+            # 질문 입력
+            user_question = st.text_input(
+                "질문을 입력하세요:",
+                placeholder="예: 이 프로젝트에서 사용하는 주요 기술 스택은 무엇인가요?",
+                key="user_question"
+            )
+            
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                ask_button = st.button("🤔 질문하기", type="primary")
+            
+            # 질문 처리
+            if ask_button and user_question:
+                with st.spinner("AI가 답변을 생성하고 있습니다..."):
+                    try:
+                        # 문서 검색 및 답변 생성
+                        answer_result = document_processor.answer_question(user_question)
+                        
+                        if answer_result["success"]:
+                            st.subheader("🤖 AI 답변")
+                            st.markdown(answer_result["answer"])
+                            
+                            # 참고 문서 표시
+                            if answer_result["sources"]:
+                                st.subheader("📚 참고 문서")
+                                for source in set(answer_result["sources"]):
+                                    st.write(f"• {source}")
+                            
+                            # 검색 결과 상세 (접기 가능)
+                            if answer_result["search_results"]:
+                                with st.expander("🔍 검색된 문서 내용 보기"):
+                                    for i, result in enumerate(answer_result["search_results"]):
+                                        st.write(f"**{i+1}. {result['file_name']} (점수: {result['score']:.2f})**")
+                                        st.write(result["content"][:300] + "..." if len(result["content"]) > 300 else result["content"])
+                                        st.divider()
+                        else:
+                            st.error(f"❌ 답변 생성 실패: {answer_result['error']}")
+                            
+                    except Exception as e:
+                        st.error(f"❌ 예외 발생: {str(e)}")
+            
+            elif ask_button and not user_question:
+                st.warning("질문을 입력해주세요!")
+            
 
 # 푸터
 st.divider()

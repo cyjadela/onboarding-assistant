@@ -1,10 +1,9 @@
 streamlit
-azure-search-documents
-azure-storage-blob
 openai
-azure-identity
-python-dotenv
+azure-storage-blob
+azure-search-documents
+azure-core
 PyPDF2
 python-docx
-azure-search-documents
-azure-ai-textanalytics
+python-pptx
+requests

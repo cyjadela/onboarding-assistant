@@ -1,4 +1,3 @@
-# document_processor.py (간단한 Key 사용)
 import json
 import uuid
 from datetime import datetime
@@ -32,7 +31,7 @@ class DocumentProcessor:
         return chunks
     
     def index_document(self, document_result):
-        """문서를 AI Search에 인덱싱 - 기존 스키마 활용 (간단한 Key)"""
+        """문서를 AI Search에 인덱싱 - 실제 스키마에 맞게 수정"""
         try:
             # 문서 텍스트를 청크로 분할
             chunks = self.chunk_text(document_result["extracted_text"])
@@ -41,36 +40,32 @@ class DocumentProcessor:
             documents = []
             for i, chunk in enumerate(chunks):
                 # 간단한 Key 생성 (문자, 숫자, 언더스코어, 대시만 사용)
-                # UUID에서 하이픈 제거하고 청크 인덱스 추가
                 clean_doc_id = document_result['document_id'].replace('-', '')
                 storage_path = f"doc_{clean_doc_id}_chunk_{i}"
                 
                 document = {
-                    # 기존 스키마의 필수 필드들
-                    "metadata_storage_path": storage_path,  # key 필드 (간단한 형식)
-                    "metadata_storage_name": f"{document_result['file_name']}_chunk_{i}",
-                    "metadata_storage_size": len(chunk.encode('utf-8')),
-                    "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
-                    "metadata_storage_content_type": "text/plain",
-                    "metadata_storage_file_extension": document_result["file_type"],
+                    # 필수 key 필드
+                    "metadata_storage_path": storage_path,
                     
-                    # 컨텐츠 필드들
+                    # 실제 스키마에 있는 필드들만 사용
                     "content": chunk,
                     "merged_content": chunk,
                     "text": [chunk],  # Collection 타입
                     "layoutText": [chunk],  # Collection 타입
                     
-                    # 언어 관련
-                    "language": "ko",
-                    "metadata_language": "ko",
+                    # 메타데이터 필드들 (스키마에 있는 것들만)
+                    "metadata_storage_size": len(chunk.encode('utf-8')),
+                    "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
+                    "metadata_storage_content_type": "text/plain",
+                    "metadata_storage_file_extension": document_result["file_type"],
                     
-                    # 날짜 필드
-                    "metadata_creation_date": datetime.now().isoformat() + "Z",
-                    
-                    # 빈 컬렉션들 (오류 방지)
+                    # 빈 컬렉션들 (스키마에 있는 것들)
+                    "people": [],
                     "organizations": [],
                     "keyphrases": [],
-                    "pii_entities": []
+                    "pii_entities": [],
+                    "imageTags": [],
+                    "imageCaption": []
                 }
                 
                 documents.append(document)
@@ -95,8 +90,6 @@ class DocumentProcessor:
         try:
             # 문서가 너무 길면 일부만 처리
             text = document_result["extracted_text"]
-            # if len(text) > 8000:
-            #     text = text[:8000] + "..."
             
             # 요약 프롬프트
             summary_prompt = f"""다음 문서를 분석하여 핵심 내용을 요약해주세요:
@@ -245,37 +238,173 @@ class DocumentProcessor:
                 "error": str(e)
             }
     
-    def search_documents(self, query, top_k=3):
-        """문서 검색 - 기존 스키마 필드 사용"""
+    def search_documents(self, query, top_k=5):
+        """문서 검색 - 인덱스 스키마에 맞게 수정된 버전"""
         try:
+            # retrievable=true인 필드들만 select에 사용
             search_results = self.search_client.search(
                 search_text=query,
                 top=top_k,
                 include_total_count=True,
-                select=["content", "merged_content", "metadata_storage_name", "metadata_storage_path"]
+                select=[
+                    "content", 
+                    "merged_content", 
+                    "metadata_storage_path"  # 이것만 retrievable=true
+                ],
+                query_type="simple",
+                search_mode="all"
             )
             
             results = []
             for result in search_results:
                 # 안전하게 필드 접근
                 content = result.get("content") or result.get("merged_content", "")
-                file_name = result.get("metadata_storage_name", "Unknown")
                 
-                # 원본 파일명 추출 (chunk 정보 제거)
-                if "_chunk_" in file_name:
-                    file_name = file_name.split("_chunk_")[0]
+                # 파일명은 metadata_storage_path에서 추출
+                storage_path = result.get("metadata_storage_path", "")
+                file_name = "업로드된 문서"  # 기본값
+                
+                if storage_path and "doc_" in storage_path and "_chunk_" in storage_path:
+                    try:
+                        # doc_UUID_chunk_N 형식에서 파일명 추출
+                        parts = storage_path.split("_")
+                        if len(parts) >= 3:
+                            uuid_part = parts[1][:8]  # UUID 앞 8자리
+                            file_name = f"문서_{uuid_part}"
+                    except:
+                        file_name = "업로드된 문서"
                 
                 results.append({
                     "content": content,
                     "file_name": file_name,
                     "score": result["@search.score"],
-                    "storage_path": result.get("metadata_storage_path", "")
+                    "storage_path": storage_path
                 })
+            
+            # 결과가 부족하면 부분 검색도 시도
+            if len(results) < 2:
+                fallback_results = self.search_client.search(
+                    search_text=query,
+                    top=top_k,
+                    include_total_count=True,
+                    select=["content", "merged_content", "metadata_storage_path"],
+                    query_type="simple",
+                    search_mode="any"
+                )
+                
+                existing_paths = {r["storage_path"] for r in results}
+                for result in fallback_results:
+                    current_path = result.get("metadata_storage_path", "")
+                    if current_path not in existing_paths:
+                        content = result.get("content") or result.get("merged_content", "")
+                        
+                        file_name = "업로드된 문서"
+                        if current_path and "doc_" in current_path and "_chunk_" in current_path:
+                            try:
+                                parts = current_path.split("_")
+                                if len(parts) >= 3:
+                                    uuid_part = parts[1][:8]
+                                    file_name = f"문서_{uuid_part}"
+                            except:
+                                pass
+                        
+                        results.append({
+                            "content": content,
+                            "file_name": file_name,
+                            "score": result["@search.score"],
+                            "storage_path": current_path
+                        })
+                        
+                        if len(results) >= top_k:
+                            break
             
             return {
                 "success": True,
                 "results": results,
                 "total_count": len(results)
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def answer_question(self, question, search_results=None):
+        """질문에 대한 답변 생성 (RAG + 일반 지식)"""
+        try:
+            # 검색 결과가 없으면 검색 수행
+            if search_results is None:
+                search_result = self.search_documents(question)
+                if not search_result["success"]:
+                    raise Exception(f"검색 실패: {search_result['error']}")
+                search_results = search_result["results"]
+            
+            # 검색 결과를 컨텍스트로 구성
+            context = ""
+            sources = []
+            if search_results:
+                context_parts = []
+                for result in search_results[:3]:  # 상위 3개만 사용
+                    context_parts.append(f"[문서: {result['file_name']}]\n{result['content']}")
+                    sources.append(result['file_name'])
+                context = "\n\n".join(context_parts)
+            
+            # 답변 생성 프롬프트 - 문서 기반 + 일반 지식
+            if context.strip():
+                # 문서 기반 답변
+                prompt = f"""다음 문서들을 참고하여 질문에 답변해주세요.
+
+질문: {question}
+
+참고 문서:
+{context}
+
+답변 규칙:
+1. 먼저 문서에 있는 정보를 기반으로 답변하세요
+2. 문서 정보가 부족하면 일반적인 지식으로 보완하되, 이를 명시하세요
+3. 한국어로 명확하고 도움이 되는 답변을 작성하세요
+4. 답변 마지막에 참고한 문서를 명시하세요
+
+답변 형식:
+[문서 기반 답변]
+[추가 일반 지식 (해당하는 경우)]
+
+**참고 문서:** [문서명들]"""
+                
+                answer_type = "document_based"
+            else:
+                # 일반 지식 기반 답변
+                prompt = f"""다음 질문에 대해 일반적인 지식을 바탕으로 답변해주세요.
+
+질문: {question}
+
+답변 규칙:
+1. 프로젝트 투입 및 기술 학습 관점에서 도움이 되는 답변을 제공하세요
+2. 한국어로 명확하고 실용적인 답변을 작성하세요
+3. 가능하면 구체적인 예시나 방법을 포함하세요
+4. 답변 마지막에 "※ 업로드된 문서에서 관련 정보를 찾을 수 없어 일반적인 지식으로 답변했습니다."라고 명시하세요"""
+                
+                answer_type = "general_knowledge"
+
+            response = self.openai_client.chat.completions.create(
+                model=self.deployment_name,
+                messages=[
+                    {"role": "system", "content": "당신은 프로젝트 투입 지원 전문가입니다. 기술 문서와 일반 지식을 활용하여 신규 투입자에게 도움이 되는 답변을 제공합니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=1500
+            )
+            
+            answer = response.choices[0].message.content
+            
+            return {
+                "success": True,
+                "answer": answer,
+                "answer_type": answer_type,
+                "sources": sources,
+                "search_results": search_results,
+                "search_result_count": len(search_results) if search_results else 0
             }
             
         except Exception as e:
