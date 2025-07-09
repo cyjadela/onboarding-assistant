@@ -23,8 +23,9 @@
 
 - Azure Services
 
-| Azure OpenAI Service (GPT) | 문서 요약, 기술 질문 응답 |
+| Azure Services | 사용 용도 |
 | --- | --- |
+| Azure OpenAI Service (GPT) | 문서 요약, 기술 질문 응답 |
 | Azure AI Search | 문서 인덱싱 및 RAG 근거 제공 |
 | Azure Blob Storage | PDF, Word, 이미지, 텍스트 등 문서 저장 |
 | Azure AI Services | 이미지 OCR 처리 |
