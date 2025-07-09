@@ -258,7 +258,7 @@ class DocumentProcessor:
                     "content",
                     "merged_content",
                     "metadata_storage_path",
-                    "metadata_storeage_name",
+                    "metadata_storage_name",
                 ],
                 query_type="simple",
                 search_mode="all",
