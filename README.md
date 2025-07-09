@@ -192,6 +192,14 @@
 2. 문서 요약 및 통합 기술 정보 제공
 3. 문서 기반 질의 응답 제공
 
+### ✅ 실행 방법
+- Azure 리소스 생성 필요
+  <img width="1099" alt="스크린샷 2025-07-09 오후 9 01 37" src="https://github.com/user-attachments/assets/4556bcc9-5cd1-4e6c-96d6-133e4805a787" />
+
+- Azure Web App 배포 후 환경 변수 설정
+  <img width="1512" alt="스크린샷 2025-07-09 오후 9 00 09" src="https://github.com/user-attachments/assets/5803c49c-3613-40ab-ae90-b465f49561fe" />
+
+
 ### ✅ 시연 영상
 https://drive.google.com/file/d/1yPxxiCxXs59k5-PiONDYhLNewBk2eWaI/view?usp=sharing
 
