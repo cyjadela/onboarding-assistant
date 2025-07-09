@@ -47,6 +47,7 @@ class DocumentProcessor:
                 document = {
                     # 필수 key 필드
                     "metadata_storage_path": storage_path,
+                    # 실제 스키마에 있는 필드들만 사용
                     # 실제 onboarding-index 스키마에 있는 필드들만 사용
                     "content": chunk,
                     "merged_content": chunk,
@@ -57,9 +58,7 @@ class DocumentProcessor:
                     "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
                     "metadata_storage_content_type": "text/plain",
                     "metadata_storage_file_extension": document_result["file_type"],
-                    "metadata_storage_name": f"{document_result['file_name']}_chunk_{i}",  # 스키마에 있음
-                    # 언어 설정 (스키마에 있음)
-                    "language": "ko",
+                    "metadata_storage_name": document_result["file_name"]
                     # 빈 컬렉션들 (스키마에 있는 것들)
                     "people": [],
                     "organizations": [],
@@ -67,10 +66,7 @@ class DocumentProcessor:
                     "keyphrases": [],
                     "pii_entities": [],
                     "imageTags": [],
-                    "imageCaption": [],
-                    # 추가 필드들 (스키마에 있음)
-                    "masked_text": "",
-                    "translated_text": "",
+                    "imageCaption": []
                 }
 
                 documents.append(document)
@@ -140,7 +136,7 @@ class DocumentProcessor:
             if len(text) > 4000:
                 text = text[:4000] + "..."
 
-            tech_prompt = f"""다음 문서에서 기술 키워드들을 간단히 추출해주세요:
+            tech_prompt = f"""다음 문서에서 기술 키워드들을 추출해주세요:
 
 문서 내용:
 {text}
@@ -152,7 +148,7 @@ class DocumentProcessor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "기술 문서에서 기술 키워드만 간단히 추출합니다.",
+                        "content": "기술 문서에서 기술 키워드만 간략하게 추출합니다."
                     },
                     {"role": "user", "content": tech_prompt},
                 ],
@@ -201,7 +197,7 @@ class DocumentProcessor:
             combined_keywords = ", ".join([k for k in tech_keywords if k])
 
             # 통합 기술 가이드 프롬프트
-            guide_prompt = f"""다음은 프로젝트의 모든 문서들입니다. 이를 바탕으로 신규 투입자를 위한 기술 학습 가이드를 작성해주세요.
+            guide_prompt = f"""다음은 프로젝트의 모든 기존 문서들입니다. 이를 바탕으로 신규 투입자를 위한 기술 학습 가이드를 작성해주세요.
 
 문서 내용:
 {combined_content[:8000]}  # 최대 8000자까지
@@ -211,10 +207,10 @@ class DocumentProcessor:
 
 다음 형식으로 학습 가이드를 작성해주세요:
 
-## 🚀 프로젝트 기술 스택
+### 🚀 프로젝트 기술 스택
 - 주요 기술들의 간단한 설명
 
-## 📚 우선 학습 기술 (중요도 순)
+### 📚 우선 학습 기술 (중요도 순)
 1. **기술명1**: 학습 이유 및 중요도
 2. **기술명2**: 학습 이유 및 중요도
 ...
@@ -227,7 +223,7 @@ class DocumentProcessor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "당신은 개발자를 위한 기술 학습 가이드 작성 전문가입니다. 제공된 문서를 바탕으로 신규 투입자를 위한 기술 학습 가이드를 작성합니다.",
+                        "content": "당신은 개발자를 위한 기술 학습 가이드 작성 전문가입니다. 제공된 문서를 통합하여 신규 투입자를 위한 기술 학습 가이드를 작성합니다."
                     },
                     {"role": "user", "content": guide_prompt},
                 ],
@@ -258,7 +254,7 @@ class DocumentProcessor:
                     "content",
                     "merged_content",
                     "metadata_storage_path",
-                    "metadata_storage_name",
+                    "metadata_storage_name",  # 실제 파일명 필드 추가
                 ],
                 query_type="simple",
                 search_mode="all",
@@ -269,30 +265,32 @@ class DocumentProcessor:
                 # 안전하게 필드 접근
                 content = result.get("content") or result.get("merged_content", "")
 
-                # 파일명은 metadata_storage_path에서 추출
-                storage_path = result.get("metadata_storage_path", "")
-                file_name = "업로드된 문서"  # 기본값
+                # 실제 파일명 우선 사용, 없으면 기존 방식 사용
+                file_name = result.get("metadata_storage_name")
+                if not file_name:
+                    # 기존 방식: metadata_storage_path에서 추출
+                    storage_path = result.get("metadata_storage_path", "")
+                    file_name = "업로드된 문서"  # 기본값
 
-                if (
-                    storage_path
-                    and "doc_" in storage_path
-                    and "_chunk_" in storage_path
-                ):
-                    try:
-                        # doc_UUID_chunk_N 형식에서 파일명 추출
-                        parts = storage_path.split("_")
-                        if len(parts) >= 3:
-                            uuid_part = parts[1][:8]  # UUID 앞 8자리
-                            file_name = f"문서_{uuid_part}"
-                    except:
-                        file_name = "업로드된 문서"
-
+                    if (
+                        storage_path
+                        and "doc_" in storage_path
+                        and "_chunk_" in storage_path
+                    ):
+                        try:
+                            # doc_UUID_chunk_N 형식에서 파일명 추출
+                            parts = storage_path.split("_")
+                            if len(parts) >= 3:
+                                uuid_part = parts[1][:8]  # UUID 앞 8자리
+                                file_name = f"문서_{uuid_part}"
+                        except:
+                            file_name = "업로드된 문서"
                 results.append(
                     {
                         "content": content,
                         "file_name": file_name,
                         "score": result["@search.score"],
-                        "storage_path": storage_path,
+                        "storage_path": result.get("metadata_storage_path", "")
                     }
                 )
 
@@ -302,7 +300,12 @@ class DocumentProcessor:
                     search_text=query,
                     top=top_k,
                     include_total_count=True,
-                    select=["content", "merged_content", "metadata_storage_path"],
+                    select=[
+                        "content",
+                        "merged_content",
+                        "metadata_storage_path",
+                        "metadata_storage_name",
+                    ],
                     query_type="simple",
                     search_mode="any",
                 )
@@ -315,19 +318,22 @@ class DocumentProcessor:
                             "merged_content", ""
                         )
 
-                        file_name = "업로드된 문서"
-                        if (
-                            current_path
-                            and "doc_" in current_path
-                            and "_chunk_" in current_path
-                        ):
-                            try:
-                                parts = current_path.split("_")
-                                if len(parts) >= 3:
-                                    uuid_part = parts[1][:8]
-                                    file_name = f"문서_{uuid_part}"
-                            except:
-                                pass
+                        # 실제 파일명 우선 사용
+                        file_name = result.get("metadata_storage_name")
+                        if not file_name:
+                            file_name = "업로드된 문서"
+                            if (
+                                current_path
+                                and "doc_" in current_path
+                                and "_chunk_" in current_path
+                            ):
+                                try:
+                                    parts = current_path.split("_")
+                                    if len(parts) >= 3:
+                                        uuid_part = parts[1][:8]
+                                        file_name = f"문서_{uuid_part}"
+                                except:
+                                    pass
 
                         results.append(
                             {
@@ -385,8 +391,8 @@ class DocumentProcessor:
 4. 답변 마지막에 참고한 문서를 명시하세요
 
 답변 형식:
-[문서 기반 답변]
-[추가 일반 지식 (해당하는 경우)]
+### 문서 기반 답변
+### 추가 일반 지식 (해당하는 경우)
 
 **참고 문서:** [문서명들]"""
 
@@ -398,7 +404,7 @@ class DocumentProcessor:
 질문: {question}
 
 답변 규칙:
-1. 프로젝트 투입 및 기술 학습 관점에서 도움이 되는 답변을 제공하세요
+1. 프로젝트 신규 투입 및 기술 학습 관점에서 도움이 되는 답변을 제공하세요
 2. 한국어로 명확하고 실용적인 답변을 작성하세요
 3. 가능하면 구체적인 예시나 방법을 포함하세요
 4. 답변 마지막에 "※ 업로드된 문서에서 관련 정보를 찾을 수 없어 일반적인 지식으로 답변했습니다."라고 명시하세요"""
@@ -410,7 +416,7 @@ class DocumentProcessor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "당신은 프로젝트 투입 지원 전문가입니다. 기술 문서와 일반 지식을 활용하여 신규 투입자에게 도움이 되는 답변을 제공합니다.",
+                        "content": "당신은 프로젝트 수행 중 신규 투입자에게 인수인계를 하는 전문가입니다. 기술 문서와 일반 지식을 활용하여 신규 투입자에게 도움이 되는 답변을 제공합니다.",
                     },
                     {"role": "user", "content": prompt},
                 ],
