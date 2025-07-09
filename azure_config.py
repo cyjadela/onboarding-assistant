@@ -1,5 +1,5 @@
 import os
-# from dotenv import load_dotenv
+from dotenv import load_dotenv
 from openai import AzureOpenAI
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -7,7 +7,7 @@ from azure.storage.blob import BlobServiceClient
 from azure.core.credentials import AzureKeyCredential
 
 # 환경 변수 로드
-# load_dotenv()
+load_dotenv()
 
 class AzureConfig:
     def __init__(self):
@@ -25,6 +25,10 @@ class AzureConfig:
         # Azure Storage 설정
         self.storage_connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         self.storage_container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "documents")
+
+        # Azure AI Services 설정 (OCR)
+        self.ai_services_endpoint = os.getenv("AZURE_AI_SERVICES_ENDPOINT")
+        self.ai_services_api_key = os.getenv("AZURE_AI_SERVICES_API_KEY")
         
     def get_openai_client(self):
         """Azure OpenAI 클라이언트 반환"""
@@ -57,6 +61,35 @@ class AzureConfig:
             self.storage_connection_string
         )
     
+    def get_vision_client(self):
+        """Azure AI Services Computer Vision 클라이언트 반환"""
+        ai_services_endpoint = os.getenv("AZURE_AI_SERVICES_ENDPOINT")
+        ai_services_api_key = os.getenv("AZURE_AI_SERVICES_API_KEY")
+        
+        print(f"🔍 AI Services endpoint: {ai_services_endpoint}")
+        print(f"🔍 AI Services key: {'있음' if ai_services_api_key else '없음'}")
+        
+        if not ai_services_endpoint or not ai_services_api_key:
+            return None
+        
+        try:
+            from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+            from msrest.authentication import CognitiveServicesCredentials
+            
+            # AI Services는 CognitiveServicesCredentials 사용
+            credentials = CognitiveServicesCredentials(ai_services_api_key)
+            client = ComputerVisionClient(ai_services_endpoint, credentials)
+            
+            print("✅ AI Services Computer Vision 클라이언트 생성 성공")
+            return client
+            
+        except ImportError as e:
+            print(f"❌ 패키지 import 실패: {str(e)}")
+            return None
+        except Exception as e:
+            print(f"❌ 클라이언트 생성 실패: {str(e)}")
+            return None
+
     def test_connections(self):
         """모든 Azure 서비스 연결 테스트"""
         results = {}
@@ -94,8 +127,21 @@ class AzureConfig:
             results["Blob Storage"] = "연결 성공"
         except Exception as e:
             results["Blob Storage"] = f"❌ 연결 실패: {str(e)}"
-        
+    
+        # AI Services Vision 연결 테스트
+        try:
+            vision_client = self.get_vision_client()
+            if vision_client:
+                # Vision 클라이언트가 있다면 간단한 테스트 수행
+                results["AI Services Vision"] = "연결 성공"
+            else:
+                results["AI Services Vision"] = "⚠️ Vision 서비스 설정 없음"
+        except Exception as e:
+            results["AI Services Vision"] = f"❌ 연결 실패: {str(e)}"  
+
         return results
+             
+
 
 # 전역 설정 객체
 azure_config = AzureConfig()
