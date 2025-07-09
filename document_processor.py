@@ -4,93 +4,95 @@ from datetime import datetime
 from azure.search.documents import SearchClient
 from azure_config import azure_config
 
+
 class DocumentProcessor:
     def __init__(self):
         self.search_client = azure_config.get_search_client()
         self.openai_client = azure_config.get_openai_client()
         self.deployment_name = azure_config.openai_deployment_name
-    
+
     def chunk_text(self, text, chunk_size=1500, overlap=150):
         """텍스트를 청크로 분할"""
         chunks = []
         start = 0
-        
+
         while start < len(text):
             end = start + chunk_size
             if end > len(text):
                 end = len(text)
-            
+
             chunk = text[start:end]
             chunks.append(chunk)
-            
+
             if end == len(text):
                 break
-                
+
             start = end - overlap
-        
+
         return chunks
-    
+
     def index_document(self, document_result):
-        """문서를 AI Search에 인덱싱 - 실제 스키마에 맞게 수정"""
+        """문서를 AI Search에 인덱싱 - onboarding-index 스키마에 맞게 수정"""
         try:
             # 문서 텍스트를 청크로 분할
             chunks = self.chunk_text(document_result["extracted_text"])
-            
+
             # 각 청크를 개별 문서로 인덱싱
             documents = []
             for i, chunk in enumerate(chunks):
                 # 간단한 Key 생성 (문자, 숫자, 언더스코어, 대시만 사용)
-                clean_doc_id = document_result['document_id'].replace('-', '')
+                clean_doc_id = document_result["document_id"].replace("-", "")
                 storage_path = f"doc_{clean_doc_id}_chunk_{i}"
-                
+
                 document = {
                     # 필수 key 필드
                     "metadata_storage_path": storage_path,
-                    
-                    # 실제 스키마에 있는 필드들만 사용
+                    # 실제 onboarding-index 스키마에 있는 필드들만 사용
                     "content": chunk,
                     "merged_content": chunk,
                     "text": [chunk],  # Collection 타입
                     "layoutText": [chunk],  # Collection 타입
-                    
                     # 메타데이터 필드들 (스키마에 있는 것들만)
-                    "metadata_storage_size": len(chunk.encode('utf-8')),
+                    "metadata_storage_size": len(chunk.encode("utf-8")),
                     "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
                     "metadata_storage_content_type": "text/plain",
                     "metadata_storage_file_extension": document_result["file_type"],
-                    
+                    "metadata_storage_name": f"{document_result['file_name']}_chunk_{i}",  # 스키마에 있음
+                    # 언어 설정 (스키마에 있음)
+                    "language": "ko",
                     # 빈 컬렉션들 (스키마에 있는 것들)
                     "people": [],
                     "organizations": [],
+                    "locations": [],  # 스키마에 있음
                     "keyphrases": [],
                     "pii_entities": [],
                     "imageTags": [],
-                    "imageCaption": []
+                    "imageCaption": [],
+                    # 추가 필드들 (스키마에 있음)
+                    "masked_text": "",
+                    "translated_text": "",
                 }
-                
+
                 documents.append(document)
-            
+
             # AI Search에 문서들 업로드
             result = self.search_client.upload_documents(documents)
-            
+
             return {
                 "success": True,
                 "indexed_chunks": len(documents),
-                "document_id": document_result["document_id"]
+                "document_id": document_result["document_id"],
             }
-            
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
     def generate_document_summary(self, document_result):
         """문서 요약 생성"""
         try:
             # 문서가 너무 길면 일부만 처리
             text = document_result["extracted_text"]
-            
+
             # 요약 프롬프트
             summary_prompt = f"""다음 문서를 분석하여 핵심 내용을 요약해주세요:
 
@@ -110,34 +112,34 @@ class DocumentProcessor:
             response = self.openai_client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "당신은 프로젝트 문서 분석 전문가입니다. 핵심 내용을 정확하고 간결하게 요약합니다."},
-                    {"role": "user", "content": summary_prompt}
+                    {
+                        "role": "system",
+                        "content": "당신은 프로젝트 문서 분석 전문가입니다. 핵심 내용을 정확하고 간결하게 요약합니다.",
+                    },
+                    {"role": "user", "content": summary_prompt},
                 ],
-                max_completion_tokens=7000
+                max_completion_tokens=7000,
             )
-            
+
             summary = response.choices[0].message.content
-            
+
             return {
                 "success": True,
                 "summary": summary,
                 "document_id": document_result["document_id"],
-                "file_name": document_result["file_name"]
+                "file_name": document_result["file_name"],
             }
-            
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
     def extract_technical_info(self, document_result):
         """기술 정보 추출 (간단한 버전)"""
         try:
             text = document_result["extracted_text"]
             if len(text) > 4000:
                 text = text[:4000] + "..."
-            
+
             tech_prompt = f"""다음 문서에서 기술 키워드들을 간단히 추출해주세요:
 
 문서 내용:
@@ -148,50 +150,56 @@ class DocumentProcessor:
             response = self.openai_client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "기술 문서에서 기술 키워드만 간단히 추출합니다."},
-                    {"role": "user", "content": tech_prompt}
+                    {
+                        "role": "system",
+                        "content": "기술 문서에서 기술 키워드만 간단히 추출합니다.",
+                    },
+                    {"role": "user", "content": tech_prompt},
                 ],
-                max_completion_tokens=7000
+                max_completion_tokens=7000,
             )
-            
+
             tech_keywords = response.choices[0].message.content
-            
+
             return {
                 "success": True,
                 "technical_keywords": tech_keywords,
                 "document_id": document_result["document_id"],
-                "file_name": document_result["file_name"]
+                "file_name": document_result["file_name"],
             }
-            
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
     def generate_integrated_tech_guide(self, processed_files):
         """전체 문서들을 통합해서 기술 학습 가이드 생성"""
         try:
             # 모든 문서의 내용을 수집
             all_content = []
             tech_keywords = []
-            
+
             for file_result in processed_files:
                 if file_result.get("success") and "extracted_text" in file_result:
                     # 문서 내용 일부 추가
-                    content = file_result["extracted_text"][:2000]  # 각 문서당 2000자까지
+                    content = file_result["extracted_text"][
+                        :2000
+                    ]  # 각 문서당 2000자까지
                     all_content.append(f"[{file_result['file_name']}]\n{content}")
-                    
+
                     # 기술 키워드 수집
                     if "processing_results" in file_result:
-                        tech_result = file_result["processing_results"].get("technical_info", {})
+                        tech_result = file_result["processing_results"].get(
+                            "technical_info", {}
+                        )
                         if tech_result.get("success"):
-                            tech_keywords.append(tech_result.get("technical_keywords", ""))
-            
+                            tech_keywords.append(
+                                tech_result.get("technical_keywords", "")
+                            )
+
             # 통합 컨텐츠 생성
             combined_content = "\n\n".join(all_content)
             combined_keywords = ", ".join([k for k in tech_keywords if k])
-            
+
             # 통합 기술 가이드 프롬프트
             guide_prompt = f"""다음은 프로젝트의 모든 문서들입니다. 이를 바탕으로 신규 투입자를 위한 기술 학습 가이드를 작성해주세요.
 
@@ -217,27 +225,27 @@ class DocumentProcessor:
             response = self.openai_client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "당신은 개발자를 위한 기술 학습 가이드 작성 전문가입니다. 제공된 문서를 바탕으로 신규 투입자를 위한 기술 학습 가이드를 작성합니다."},
-                    {"role": "user", "content": guide_prompt}
+                    {
+                        "role": "system",
+                        "content": "당신은 개발자를 위한 기술 학습 가이드 작성 전문가입니다. 제공된 문서를 바탕으로 신규 투입자를 위한 기술 학습 가이드를 작성합니다.",
+                    },
+                    {"role": "user", "content": guide_prompt},
                 ],
-                max_completion_tokens=7000
+                max_completion_tokens=7000,
             )
-            
+
             tech_guide = response.choices[0].message.content
-            
+
             return {
                 "success": True,
                 "tech_guide": tech_guide,
                 "processed_files_count": len(processed_files),
-                "total_keywords": combined_keywords
+                "total_keywords": combined_keywords,
             }
-            
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
     def search_documents(self, query, top_k=5):
         """문서 검색 - 인덱스 스키마에 맞게 수정된 버전"""
         try:
@@ -247,24 +255,29 @@ class DocumentProcessor:
                 top=top_k,
                 include_total_count=True,
                 select=[
-                    "content", 
-                    "merged_content", 
-                    "metadata_storage_path"  # 이것만 retrievable=true
+                    "content",
+                    "merged_content",
+                    "metadata_storage_path",
+                    "metadata_storeage_name",
                 ],
                 query_type="simple",
-                search_mode="all"
+                search_mode="all",
             )
-            
+
             results = []
             for result in search_results:
                 # 안전하게 필드 접근
                 content = result.get("content") or result.get("merged_content", "")
-                
+
                 # 파일명은 metadata_storage_path에서 추출
                 storage_path = result.get("metadata_storage_path", "")
                 file_name = "업로드된 문서"  # 기본값
-                
-                if storage_path and "doc_" in storage_path and "_chunk_" in storage_path:
+
+                if (
+                    storage_path
+                    and "doc_" in storage_path
+                    and "_chunk_" in storage_path
+                ):
                     try:
                         # doc_UUID_chunk_N 형식에서 파일명 추출
                         parts = storage_path.split("_")
@@ -273,14 +286,16 @@ class DocumentProcessor:
                             file_name = f"문서_{uuid_part}"
                     except:
                         file_name = "업로드된 문서"
-                
-                results.append({
-                    "content": content,
-                    "file_name": file_name,
-                    "score": result["@search.score"],
-                    "storage_path": storage_path
-                })
-            
+
+                results.append(
+                    {
+                        "content": content,
+                        "file_name": file_name,
+                        "score": result["@search.score"],
+                        "storage_path": storage_path,
+                    }
+                )
+
             # 결과가 부족하면 부분 검색도 시도
             if len(results) < 2:
                 fallback_results = self.search_client.search(
@@ -289,17 +304,23 @@ class DocumentProcessor:
                     include_total_count=True,
                     select=["content", "merged_content", "metadata_storage_path"],
                     query_type="simple",
-                    search_mode="any"
+                    search_mode="any",
                 )
-                
+
                 existing_paths = {r["storage_path"] for r in results}
                 for result in fallback_results:
                     current_path = result.get("metadata_storage_path", "")
                     if current_path not in existing_paths:
-                        content = result.get("content") or result.get("merged_content", "")
-                        
+                        content = result.get("content") or result.get(
+                            "merged_content", ""
+                        )
+
                         file_name = "업로드된 문서"
-                        if current_path and "doc_" in current_path and "_chunk_" in current_path:
+                        if (
+                            current_path
+                            and "doc_" in current_path
+                            and "_chunk_" in current_path
+                        ):
                             try:
                                 parts = current_path.split("_")
                                 if len(parts) >= 3:
@@ -307,28 +328,23 @@ class DocumentProcessor:
                                     file_name = f"문서_{uuid_part}"
                             except:
                                 pass
-                        
-                        results.append({
-                            "content": content,
-                            "file_name": file_name,
-                            "score": result["@search.score"],
-                            "storage_path": current_path
-                        })
-                        
+
+                        results.append(
+                            {
+                                "content": content,
+                                "file_name": file_name,
+                                "score": result["@search.score"],
+                                "storage_path": current_path,
+                            }
+                        )
+
                         if len(results) >= top_k:
                             break
-            
-            return {
-                "success": True,
-                "results": results,
-                "total_count": len(results)
-            }
-            
+
+            return {"success": True, "results": results, "total_count": len(results)}
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     def answer_question(self, question, search_results=None):
         """질문에 대한 답변 생성 (RAG + 일반 지식)"""
@@ -339,17 +355,19 @@ class DocumentProcessor:
                 if not search_result["success"]:
                     raise Exception(f"검색 실패: {search_result['error']}")
                 search_results = search_result["results"]
-            
+
             # 검색 결과를 컨텍스트로 구성
             context = ""
             sources = []
             if search_results:
                 context_parts = []
                 for result in search_results[:3]:  # 상위 3개만 사용
-                    context_parts.append(f"[문서: {result['file_name']}]\n{result['content']}")
-                    sources.append(result['file_name'])
+                    context_parts.append(
+                        f"[문서: {result['file_name']}]\n{result['content']}"
+                    )
+                    sources.append(result["file_name"])
                 context = "\n\n".join(context_parts)
-            
+
             # 답변 생성 프롬프트 - 문서 기반 + 일반 지식
             if context.strip():
                 # 문서 기반 답변
@@ -371,7 +389,7 @@ class DocumentProcessor:
 [추가 일반 지식 (해당하는 경우)]
 
 **참고 문서:** [문서명들]"""
-                
+
                 answer_type = "document_based"
             else:
                 # 일반 지식 기반 답변
@@ -384,59 +402,60 @@ class DocumentProcessor:
 2. 한국어로 명확하고 실용적인 답변을 작성하세요
 3. 가능하면 구체적인 예시나 방법을 포함하세요
 4. 답변 마지막에 "※ 업로드된 문서에서 관련 정보를 찾을 수 없어 일반적인 지식으로 답변했습니다."라고 명시하세요"""
-                
+
                 answer_type = "general_knowledge"
 
             response = self.openai_client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "당신은 프로젝트 투입 지원 전문가입니다. 기술 문서와 일반 지식을 활용하여 신규 투입자에게 도움이 되는 답변을 제공합니다."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "당신은 프로젝트 투입 지원 전문가입니다. 기술 문서와 일반 지식을 활용하여 신규 투입자에게 도움이 되는 답변을 제공합니다.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                max_completion_tokens=1500
+                max_completion_tokens=1500,
             )
-            
+
             answer = response.choices[0].message.content
-            
+
             return {
                 "success": True,
                 "answer": answer,
                 "answer_type": answer_type,
                 "sources": sources,
                 "search_results": search_results,
-                "search_result_count": len(search_results) if search_results else 0
+                "search_result_count": len(search_results) if search_results else 0,
             }
-            
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
     def process_document_complete(self, document_result):
         """문서 전체 처리 파이프라인"""
         results = {
             "document_id": document_result["document_id"],
             "file_name": document_result["file_name"],
-            "processing_results": {}
+            "processing_results": {},
         }
-        
+
         # 1. AI Search 인덱싱
         print("AI Search 인덱싱 중...")
         index_result = self.index_document(document_result)
         results["processing_results"]["indexing"] = index_result
-        
+
         # 2. 문서 요약 생성
         print("문서 요약 생성 중...")
         summary_result = self.generate_document_summary(document_result)
         results["processing_results"]["summary"] = summary_result
-        
+
         # 3. 기술 키워드 추출 (간단화)
         print("기술 키워드 추출 중...")
         tech_result = self.extract_technical_info(document_result)
         results["processing_results"]["technical_info"] = tech_result
-        
+
         return results
+
 
 # 전역 프로세서 객체
 document_processor = DocumentProcessor()
