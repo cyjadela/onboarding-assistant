@@ -32,7 +32,7 @@ class DocumentProcessor:
         return chunks
 
     def index_document(self, document_result):
-        """문서를 AI Search에 인덱싱 - 실제 스키마에 맞게 수정"""
+        """문서를 AI Search에 인덱싱 - onboarding-index 스키마에 맞게 수정"""
         try:
             # 문서 텍스트를 청크로 분할
             chunks = self.chunk_text(document_result["extracted_text"])
@@ -48,6 +48,7 @@ class DocumentProcessor:
                     # 필수 key 필드
                     "metadata_storage_path": storage_path,
                     # 실제 스키마에 있는 필드들만 사용
+                    # 실제 onboarding-index 스키마에 있는 필드들만 사용
                     "content": chunk,
                     "merged_content": chunk,
                     "text": [chunk],  # Collection 타입
@@ -57,14 +58,15 @@ class DocumentProcessor:
                     "metadata_storage_last_modified": datetime.now().isoformat() + "Z",
                     "metadata_storage_content_type": "text/plain",
                     "metadata_storage_file_extension": document_result["file_type"],
-                    "metadata_storage_name": document_result["file_name"],
+                    "metadata_storage_name": document_result["file_name"]
                     # 빈 컬렉션들 (스키마에 있는 것들)
                     "people": [],
                     "organizations": [],
+                    "locations": [],  # 스키마에 있음
                     "keyphrases": [],
                     "pii_entities": [],
                     "imageTags": [],
-                    "imageCaption": [],
+                    "imageCaption": []
                 }
 
                 documents.append(document)
@@ -146,7 +148,7 @@ class DocumentProcessor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "기술 문서에서 기술 키워드만 간략하게 추출합니다.",
+                        "content": "기술 문서에서 기술 키워드만 간략하게 추출합니다."
                     },
                     {"role": "user", "content": tech_prompt},
                 ],
@@ -221,7 +223,7 @@ class DocumentProcessor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "당신은 개발자를 위한 기술 학습 가이드 작성 전문가입니다. 제공된 문서를 통합하여 신규 투입자를 위한 기술 학습 가이드를 작성합니다.",
+                        "content": "당신은 개발자를 위한 기술 학습 가이드 작성 전문가입니다. 제공된 문서를 통합하여 신규 투입자를 위한 기술 학습 가이드를 작성합니다."
                     },
                     {"role": "user", "content": guide_prompt},
                 ],
@@ -283,13 +285,12 @@ class DocumentProcessor:
                                 file_name = f"문서_{uuid_part}"
                         except:
                             file_name = "업로드된 문서"
-
                 results.append(
                     {
                         "content": content,
                         "file_name": file_name,
                         "score": result["@search.score"],
-                        "storage_path": result.get("metadata_storage_path", ""),
+                        "storage_path": result.get("metadata_storage_path", "")
                     }
                 )
 
