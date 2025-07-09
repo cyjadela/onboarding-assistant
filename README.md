@@ -193,8 +193,7 @@
 3. 문서 기반 질의 응답 제공
 
 ### ✅ 시연 영상
-
-- 동영상 첨부
+https://drive.google.com/file/d/1yPxxiCxXs59k5-PiONDYhLNewBk2eWaI/view?usp=sharing
 
 ![시연 캡처](https://github.com/user-attachments/assets/68704dd6-c5a3-421e-a7b2-be18e5ac991c)
 
